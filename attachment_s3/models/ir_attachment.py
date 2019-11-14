@@ -32,20 +32,7 @@ class IrAttachment(models.Model):
         return l
 
     @api.model
-    def _get_s3_bucket(self, name=None):
-        """Connect to S3 and return the bucket
-
-        The following environment variables can be set:
-        * ``AWS_HOST``
-        * ``AWS_REGION``
-        * ``AWS_ACCESS_KEY_ID``
-        * ``AWS_SECRET_ACCESS_KEY``
-        * ``AWS_BUCKETNAME``
-
-        If a name is provided, we'll read this bucket, otherwise, the bucket
-        from the environment variable ``AWS_BUCKETNAME`` will be read.
-
-        """
+    def _get_s3_connection_params(self, bucket_name=None):
         host = os.environ.get('AWS_HOST')
 
         # Ensure host is prefixed with a scheme (use https as default)
@@ -55,11 +42,12 @@ class IrAttachment(models.Model):
         region_name = os.environ.get('AWS_REGION')
         access_key = os.environ.get('AWS_ACCESS_KEY_ID')
         secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
-        bucket_name = name or os.environ.get('AWS_BUCKETNAME')
+        bucket_name = bucket_name or os.environ.get('AWS_BUCKETNAME')
 
         params = {
             'aws_access_key_id': access_key,
             'aws_secret_access_key': secret_key,
+            'bucket_name': bucket_name,
         }
         if host:
             params['endpoint_url'] = host
@@ -78,6 +66,25 @@ class IrAttachment(models.Model):
                     ) % (bucket_name, bucket_name)
 
             raise exceptions.UserError(msg)
+        return params
+
+    @api.model
+    def _get_s3_bucket(self, name=None):
+        """Connect to S3 and return the bucket
+
+        The following environment variables can be set:
+        * ``AWS_HOST``
+        * ``AWS_REGION``
+        * ``AWS_ACCESS_KEY_ID``
+        * ``AWS_SECRET_ACCESS_KEY``
+        * ``AWS_BUCKETNAME``
+
+        If a name is provided, we'll read this bucket, otherwise, the bucket
+        from the environment variable ``AWS_BUCKETNAME`` will be read.
+
+        """
+        params = self._get_s3_connection_params(bucket_name=name)
+        bucket_name = name or params.get('bucket_name')
         # try:
         s3 = boto3.resource('s3', **params)
         bucket = s3.Bucket(bucket_name)
@@ -96,6 +103,7 @@ class IrAttachment(models.Model):
             raise exceptions.UserError(str(error))
 
         if not exists:
+            region_name = params.get('region_name')
             if not region_name:
                 bucket = s3.create_bucket(Bucket=bucket_name)
             else:
